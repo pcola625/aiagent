@@ -25,7 +25,6 @@ def create_content(client, messages, verbose):
     if content_response.candidates:
         for candidates in content_response.candidates:
             messages.append(candidates.content)
-            print(f"added a candidate\n")
     if not content_response.function_calls:
         return content_response.text
 
