@@ -1,9 +1,12 @@
-import os, argparse
+import os, argparse, sys
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai.types import Candidate
+
 from prompt import system_prompt
 from functions.call_function import available_functions, call_function
+from create_content import create_content
 
 def main():
     print("Hello from aiagent!")
@@ -14,53 +17,40 @@ def main():
     args = parser.parse_args()
     # Now we can access `args.user_prompt`
 
-    prompt = args.user_prompt 
+    prompt = args.user_prompt
+
+    if args.verbose:
+        print(f"User prompt: {prompt}")
+    
     messages = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
+    num_iters = os.environ.get("GEMINI_NUM_ITERS")
 
+    if num_iters is None:
+        num_iters = 5
     if api_key is None:
         raise RuntimeError("No API key - check your environment variables. Did you create one yet?")
         exit(1)
 
     client = genai.Client(api_key=api_key)
-    
-#   print(f"Q: {prompt}")
-    content_response = client.models.generate_content(
-        model = "gemini-2.5-flash",
-        contents = messages,
-        config = types.GenerateContentConfig(tools=[available_functions],system_instruction=system_prompt, temperature=0),
-    )
 
-    if content_response is None:
-        raise RuntimeError("Something did not work getting response")
-    if content_response.usage_metadata is None:
-        raise RuntimeError("content_response.usage_metadata was empty... probably did not reach Gemini...\n check the usual suspects:\n internet connectivity,\n did you pay the bills on time,\n are you using the correct token...")
-        exit(1) 
+   # Begins the agent looop here.. I think.
+    for _ in range(int(num_iters)):
+        try:
+            final_response = create_content(client, messages, args.verbose)
+            if final_response:
+                print("Final response:")
+                print(final_response)
+                return
+        except Exception as e:
+            print(f"Error in create_content: {e}")
 
-    if args.verbose:
-        prompt_tokens = content_response.usage_metadata.prompt_token_count
-        candidate_tokens = content_response.usage_metadata.candidates_token_count
-        print(f"User prompt: {prompt}\nPrompt tokens: {prompt_tokens}\nResponse tokens: {candidate_tokens}")
 
-    result_list = []
-    if content_response.function_calls is not None:
-        function_calls = content_response.function_calls
-        for function_call in function_calls:
-            function_call_result = call_function(function_call)
-            #print(f"Calling function {function_call.name}({function_call.args})")
-            if function_call_result.parts is None:
-                raise RuntimeError("Something did not work getting response- empty parts")
-            if function_call_result.parts[0].function_response is None:
-                raise RuntimeError("Something did not work getting response- None in the function_response")
-            if function_call_result.parts[0].function_response.response is None:
-                raise RuntimeError("Something did not work getting response- None in the function_response.response")
-        result_list.append(function_call_result.parts[0])
+    print(f"Maximum iterations ({num_iters}) reached")
+    sys.exit(1)
 
-        if args.verbose:
-            print(f"-> {function_call_result.parts[0].function_response.response}")
-
-    print(f"Gemini says:\n{content_response.text}")
 
 if __name__ == "__main__":
     main()
